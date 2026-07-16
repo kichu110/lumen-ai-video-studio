@@ -1,0 +1,14 @@
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/
+node_modules/
+dist/
+.cache/
+*.webm
+*.mp4
+*.png
+!docs/**
+.env
+.env.*
