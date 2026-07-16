@@ -85,45 +85,6 @@
     },
   ];
 
-  const PRESETS = [
-    {
-      id: "ocean-dusk",
-      label: "Ocean dusk",
-      prompt:
-        "Cinematic ocean at dusk, golden horizon, gentle waves, soft clouds drifting, calm reflective water, ultra realistic lighting",
-    },
-    {
-      id: "neon-city",
-      label: "Neon city",
-      prompt:
-        "Futuristic neon city night drive, rain-soaked streets, glowing skyscrapers, purple and cyan lights, cyberpunk atmosphere",
-    },
-    {
-      id: "portrait-studio",
-      label: "Portrait",
-      prompt:
-        "Cinematic portrait lighting, soft key light, shallow depth of field feel, elegant background bokeh, photoreal mood",
-    },
-    {
-      id: "product-spin",
-      label: "Product",
-      prompt:
-        "Premium product showcase, clean studio backdrop, soft reflections, commercial camera orbit, crisp lighting",
-    },
-    {
-      id: "space-nebula",
-      label: "Space",
-      prompt:
-        "Deep space nebula flythrough, swirling cosmic clouds, bright stars, purple and teal gas, epic sci-fi atmosphere",
-    },
-    {
-      id: "forest-rain",
-      label: "Forest rain",
-      prompt:
-        "Lush green forest in soft rain, tall trees, light rays through canopy, wet leaves, peaceful ambient nature scene",
-    },
-  ];
-
   const STYLES = [
     { id: "cinematic", label: "Cinematic" },
     { id: "dreamy", label: "Dreamy" },
@@ -141,7 +102,7 @@
   const state = {
     mode: "text2video",
     agents: ["lumen", "seedance-local"],
-    prompt: PRESETS[0].prompt,
+    prompt: "",
     style: "cinematic",
     aspect: "16:9",
     duration: 8,
@@ -277,15 +238,18 @@
       abstract: 0,
     };
     const rules = [
-      [/ocean|sea|wave|beach|coast|water|lake|river/, "ocean", 3],
-      [/city|neon|cyber|street|skyscraper|urban|metropolis/, "city", 3],
-      [/mountain|peak|valley|alpine|cliff|ridge|hills|fog|mist/, "mountain", 3],
-      [/space|nebula|galaxy|star|cosmos|orbit|planet|sci-?fi/, "space", 3],
-      [/forest|tree|woods|jungle|canopy|leaves/, "forest", 3],
-      [/desert|dune|sand|arid|canyon|heat/, "desert", 3],
-      [/portrait|face|person|beauty|headshot|model/, "portrait", 3],
-      [/product|studio|commercial|packshot|brand/, "product", 3],
-      [/abstract|particle|energy|glow|surreal|dream/, "abstract", 2],
+      [/ocean|sea|wave|beach|coast|water|lake|river|surf|boat|ship|underwater|aquarium/, "ocean", 3],
+      [/city|neon|cyber|street|skyscraper|urban|metropolis|tokyo|night drive|traffic|building/, "city", 3],
+      [/mountain|peak|valley|alpine|cliff|ridge|hills|fog|mist|snow|glacier/, "mountain", 3],
+      [/space|nebula|galaxy|star|cosmos|orbit|planet|sci-?fi|astronaut|rocket|alien/, "space", 3],
+      [/forest|tree|woods|jungle|canopy|leaves|garden|park|nature/, "forest", 3],
+      [/desert|dune|sand|arid|canyon|heat|sahara|oasis/, "desert", 3],
+      [/portrait|face|person|beauty|headshot|model|woman|man|girl|boy|human|selfie|character|anime/, "portrait", 3],
+      [/product|studio|commercial|packshot|brand|phone|car|shoe|bottle|gadget/, "product", 3],
+      [/abstract|particle|energy|glow|surreal|dream|magic|fantasy|robot|ai|cyberpunk/, "abstract", 2],
+      [/dog|cat|animal|bird|horse|dragon|creature/, "forest", 2],
+      [/rain|storm|thunder|lightning/, "city", 1],
+      [/sunset|sunrise|golden hour|dusk|dawn/, "mountain", 1],
     ];
     rules.forEach(([re, theme, w]) => {
       if (re.test(t)) scores[theme] += w;
@@ -434,12 +398,19 @@
     const agent = agentProfile();
     const theme = detectTheme(state.prompt);
     const mood = detectMood(state.prompt);
-    const title = extractTitle(state.prompt);
-    const palette = paletteFor(theme, state.style, state.seed, agent.colorBias);
+    const title = extractTitle(state.prompt) || "Custom prompt";
+    // Fold prompt text into seed so every unique prompt looks different
+    let promptHash = state.seed >>> 0;
+    const ptxt = String(state.prompt || "");
+    for (let i = 0; i < ptxt.length; i++) {
+      promptHash = Math.imul(promptHash ^ ptxt.charCodeAt(i), 0x9e3779b1) >>> 0;
+    }
+    const effectiveSeed = promptHash || state.seed;
+    const palette = paletteFor(theme, state.style, effectiveSeed, agent.colorBias);
     const sceneCount =
       state.mode === "text2image" ? 1 : state.duration <= 6 ? 2 : state.duration <= 12 ? 3 : 4;
     const sceneDur = state.duration / sceneCount;
-    const rng = mulberry32(state.seed);
+    const rng = mulberry32(effectiveSeed);
 
     const beatTemplates = {
       ocean: [
@@ -561,7 +532,7 @@
       style: state.style,
       mode: state.mode,
       duration: state.duration,
-      seed: state.seed,
+      seed: effectiveSeed,
       palette,
       scenes,
       caption: title,
@@ -1294,8 +1265,8 @@
   }
 
   async function generateImage() {
-    ensurePlan();
     stopPreview();
+    ensurePlan();
     const canvas = els.canvas;
     const ctx = canvas.getContext("2d", { alpha: false });
     const a = getAspect();
@@ -1317,8 +1288,8 @@
     state.imageBlob = blob;
     state.recordedBlob = null;
     if (els.btnDownload) els.btnDownload.disabled = !blob;
-    setStatus(`Image ready · ${((blob?.size || 0) / 1024).toFixed(0)} KB PNG`, 100);
-    toast("Image generated offline");
+    setStatus(`Image ready from your prompt · ${((blob?.size || 0) / 1024).toFixed(0)} KB PNG`, 100);
+    toast("Custom image generated");
   }
 
   async function generateVideo() {
@@ -1409,11 +1380,21 @@
     if (els.btnDownload) els.btnDownload.disabled = !state.recordedBlob;
     renderFrame(ctx, canvas.width, canvas.height, state.plan, state.duration - 0.001);
     setStatus(`Video ready · ${(state.recordedBlob.size / 1024 / 1024).toFixed(2)} MB WebM`, 100);
-    toast("Video generated offline — ready to download");
+    toast("Custom video generated — ready to download");
   }
 
   async function generate() {
     try {
+      state.prompt = (els.prompt ? els.prompt.value : state.prompt).trim();
+      if (!state.prompt) {
+        toast("Enter a prompt first");
+        if (els.prompt) els.prompt.focus();
+        return;
+      }
+      // Fresh seed each generate so custom prompts don't look stuck
+      state.seed = Math.floor(Math.random() * 1e9);
+      if (els.seedValue) els.seedValue.textContent = String(state.seed);
+      ensurePlan();
       if (state.mode === "text2image") await generateImage();
       else await generateVideo();
     } catch (err) {
@@ -1651,13 +1632,10 @@
             <h2 class="section-gap">Prompt</h2>
             <div class="field">
               <label for="prompt">Describe the shot / transform</label>
-              <textarea id="prompt">${escapeHtml(state.prompt)}</textarea>
+              <textarea id="prompt" placeholder="Describe anything: a golden retriever surfing at sunset, a robot making coffee, anime girl in rain...">${escapeHtml(state.prompt)}</textarea>
             </div>
 
-            <div class="field">
-              <label>Presets</label>
-              <div class="chip-row" id="presets"></div>
-            </div>
+            <p class="hint" id="promptHint">Type any custom prompt, then click Generate. Output is built from your text + selected agents (no presets).</p>
 
             <h2>References</h2>
             <div class="upload-grid" id="uploadGrid"></div>
@@ -1792,7 +1770,6 @@
     els.durationVal = document.getElementById("durationVal");
     els.fpsVal = document.getElementById("fpsVal");
     els.seedValue = document.getElementById("seedValue");
-    els.presets = document.getElementById("presets");
     els.modes = document.getElementById("modes");
     els.agents = document.getElementById("agents");
     els.uploadGrid = document.getElementById("uploadGrid");
@@ -1873,21 +1850,6 @@
       els.aspect.appendChild(opt);
     });
 
-    PRESETS.forEach((p, idx) => {
-      const b = document.createElement("button");
-      b.type = "button";
-      b.className = "chip" + (idx === 0 ? " active" : "");
-      b.textContent = p.label;
-      b.addEventListener("click", () => {
-        state.prompt = p.prompt;
-        els.prompt.value = p.prompt;
-        document.querySelectorAll("#presets .chip").forEach((c) => c.classList.remove("active"));
-        b.classList.add("active");
-        ensurePlan();
-        drawStill();
-      });
-      els.presets.appendChild(b);
-    });
 
     renderUploadCards();
 
@@ -1929,7 +1891,11 @@
 
     els.prompt.addEventListener("input", () => {
       state.prompt = els.prompt.value;
-      document.querySelectorAll("#presets .chip").forEach((c) => c.classList.remove("active"));
+    });
+    els.prompt.addEventListener("change", () => {
+      state.prompt = els.prompt.value.trim();
+      ensurePlan();
+      drawStill();
     });
     els.style.addEventListener("change", () => {
       state.style = els.style.value;
@@ -1974,6 +1940,10 @@
   document.addEventListener("DOMContentLoaded", () => {
     bindUI();
     ensurePlan();
-    drawStill();
+    if (state.prompt.trim()) drawStill();
+    else {
+      setStatus("Enter a custom prompt, then Generate", 0);
+      if (els.overlay) els.overlay.classList.remove("hidden");
+    }
   });
 })();
