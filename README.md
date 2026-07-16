@@ -43,18 +43,32 @@ npx serve .
 
 Then visit `http://localhost:8080`
 
-### Option B — static host
+### Option B — GitHub Pages (live site)
 
-Deploy the folder to GitHub Pages, Netlify, Vercel, Cloudflare Pages, or any static host.
+This repo includes `.github/workflows/pages.yml`.
+
+1. Open **Settings → Pages**
+2. Under **Build and deployment**, set **Source** to **GitHub Actions**
+3. Open the **Actions** tab and re-run **Deploy GitHub Pages** if needed
+
+Live URL after deploy:
+
+`https://kichu110.github.io/lumen-ai-video-studio/`
+
+### Option C — other static hosts
+
+Deploy the folder to Netlify, Vercel, Cloudflare Pages, or any static host.
 
 ## Project structure
 
 ```
 .
-├── index.html   # App shell
-├── styles.css   # Dark cinematic UI
-├── app.js       # Planner + renderer + exports
-└── README.md
+├── index.html                      # App shell
+├── styles.css                      # Dark cinematic UI
+├── app.js                          # Planner + renderer + exports
+├── README.md
+├── LICENSE
+└── .github/workflows/pages.yml     # GitHub Pages deploy
 ```
 
 ## How it works
