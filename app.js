@@ -224,8 +224,52 @@
     return out;
   }
 
+  function parseSubjects(text) {
+    const t = String(text || "").toLowerCase();
+    const subjects = [];
+    const hasCouple = /\bcouple\b|\btwo people\b|\bpair\b/.test(t);
+    const hasPeople = hasCouple || /\bpeople\b|\bpersons?\b|\bhumans?\b|\bman\b|\bwoman\b|\bgirl\b|\bboy\b|\bfriends?\b|\bfamily\b|\bcharacter\b|\banime\b/.test(t);
+    const hasDog = /\bdogs?\b|\bpuppy\b|\bpuppies\b|\bhound\b|\bretriever\b/.test(t);
+    const hasCat = /\bcats?\b|\bkitten\b/.test(t);
+    const hasBird = /\bbirds?\b|\beagle\b/.test(t) && !hasDog;
+    const hasHorse = /\bhorses?\b|\bpony\b/.test(t);
+    const hasRobot = /\brobots?\b|\bandroid\b|\bmecha\b/.test(t);
+    const hasCar = /\bcars?\b|\bvehicle\b|\btruck\b|\bbike\b|\bmotorcycle\b/.test(t);
+    const walking = /\bwalk(ing|s|ed)?\b|\bstroll\b|\bpark\b|\bleash\b/.test(t);
+    const running = /\brun(ning|s|ed)?\b|\bjogg(ing|er)?\b/.test(t);
+    const sitting = /\bsit(ting|s|ed)?\b/.test(t);
+    const action = running ? "run" : walking ? "walk" : sitting ? "sit" : "idle";
+
+    if (hasCouple) {
+      subjects.push({ type: "person", role: "left", scale: 1, action });
+      subjects.push({ type: "person", role: "right", scale: 0.98, action });
+    } else if (hasPeople) {
+      subjects.push({ type: "person", role: "main", scale: 1.05, action });
+      if (/\bfriends?\b|\bfamily\b|\bpeople\b/.test(t)) {
+        subjects.push({ type: "person", role: "side", scale: 0.95, action });
+      }
+    }
+    if (hasDog) subjects.push({ type: "dog", role: "pet", scale: 0.55, action: action === "sit" ? "walk" : action });
+    if (hasCat) subjects.push({ type: "cat", role: "pet", scale: 0.42, action });
+    if (hasHorse) subjects.push({ type: "horse", role: "animal", scale: 0.9, action });
+    if (hasRobot) subjects.push({ type: "robot", role: "main", scale: 1, action });
+    if (hasCar) subjects.push({ type: "car", role: "vehicle", scale: 1, action: "drive" });
+    if (hasBird) subjects.push({ type: "bird", role: "pet", scale: 0.28, action: "fly" });
+
+    // If only animals mentioned without people, keep animals.
+    // If nothing matched, leave empty so landscape-only still works.
+    return {
+      subjects,
+      action,
+      hasSubjects: subjects.length > 0,
+      walking: walking || running,
+      outdoor: /\bpark\b|\bstreet\b|\bbeach\b|\bforest\b|\bmountain\b|\bcity\b|\boutdoor\b|\bfield\b|\bpath\b/.test(t) || walking || running,
+    };
+  }
+
   function detectTheme(text) {
-    const t = text.toLowerCase();
+    const t = String(text || "").toLowerCase();
+    const parsed = parseSubjects(text);
     const scores = {
       ocean: 0,
       city: 0,
@@ -236,27 +280,44 @@
       portrait: 0,
       product: 0,
       abstract: 0,
+      park: 0,
     };
     const rules = [
-      [/ocean|sea|wave|beach|coast|water|lake|river|surf|boat|ship|underwater|aquarium/, "ocean", 3],
-      [/city|neon|cyber|street|skyscraper|urban|metropolis|tokyo|night drive|traffic|building/, "city", 3],
-      [/mountain|peak|valley|alpine|cliff|ridge|hills|fog|mist|snow|glacier/, "mountain", 3],
+      [/ocean|sea|wave|beach|coast|underwater|aquarium|surf/, "ocean", 4],
+      [/\blake\b|\briver\b|\bwater\b/, "ocean", 1],
+      [/city|neon|cyber|street|skyscraper|urban|metropolis|tokyo|traffic|building/, "city", 3],
+      [/mountain|peak|valley|alpine|cliff|ridge|hills|snow|glacier/, "mountain", 3],
       [/space|nebula|galaxy|star|cosmos|orbit|planet|sci-?fi|astronaut|rocket|alien/, "space", 3],
-      [/forest|tree|woods|jungle|canopy|leaves|garden|park|nature/, "forest", 3],
+      [/forest|tree|woods|jungle|canopy|leaves|garden|nature/, "forest", 3],
+      [/\bpark\b|\bpath\b|\btrail\b|\bgrass\b|\bfield\b/, "park", 4],
       [/desert|dune|sand|arid|canyon|heat|sahara|oasis/, "desert", 3],
-      [/portrait|face|person|beauty|headshot|model|woman|man|girl|boy|human|selfie|character|anime/, "portrait", 3],
-      [/product|studio|commercial|packshot|brand|phone|car|shoe|bottle|gadget/, "product", 3],
-      [/abstract|particle|energy|glow|surreal|dream|magic|fantasy|robot|ai|cyberpunk/, "abstract", 2],
-      [/dog|cat|animal|bird|horse|dragon|creature/, "forest", 2],
+      [/portrait|face|headshot|selfie|close-?up/, "portrait", 3],
+      [/product|studio|commercial|packshot|brand|phone|shoe|bottle|gadget/, "product", 3],
+      [/abstract|particle|energy|glow|surreal|dream|magic|fantasy/, "abstract", 2],
       [/rain|storm|thunder|lightning/, "city", 1],
       [/sunset|sunrise|golden hour|dusk|dawn/, "mountain", 1],
     ];
     rules.forEach(([re, theme, w]) => {
       if (re.test(t)) scores[theme] += w;
     });
+
+    // Subject prompts should NOT fall into random landscapes.
+    if (parsed.hasSubjects) {
+      if (parsed.walking || /\bpark\b|\bpath\b|\bgrass\b|\bstroll\b/.test(t)) scores.park += 6;
+      else if (/\bstreet\b|\bcity\b|\bneon\b/.test(t)) scores.city += 5;
+      else if (/\bbeach\b|\bocean\b|\bsea\b/.test(t)) scores.ocean += 5;
+      else if (/\bforest\b|\bwoods\b/.test(t)) scores.forest += 5;
+      else scores.park += 5; // default for people/animals: park path
+      // dampen pure landscape defaults when subjects exist
+      scores.ocean = Math.min(scores.ocean, 2);
+      scores.mountain = Math.min(scores.mountain, 2);
+      scores.space = Math.min(scores.space, 1);
+    }
+
     if (state.mode === "faceswap") scores.portrait += 2;
     if (state.refImage && state.mode === "image2video") scores.abstract += 1;
-    let best = "mountain";
+
+    let best = parsed.hasSubjects ? "park" : "mountain";
     let bestScore = -1;
     Object.keys(scores).forEach((k) => {
       if (scores[k] > bestScore) {
@@ -349,6 +410,14 @@
         accent: [180, 220, 255],
         fog: [160, 180, 210],
       },
+      park: {
+        skyTop: [90, 150, 220],
+        skyBot: [190, 220, 255],
+        mid: [120, 180, 120],
+        ground: [70, 120, 70],
+        accent: [255, 210, 120],
+        fog: [210, 230, 210],
+      },
       abstract: {
         skyTop: [10, 10, 30],
         skyBot: [40, 20, 70],
@@ -396,6 +465,7 @@
 
   function buildPlan() {
     const agent = agentProfile();
+    const subjectsInfo = parseSubjects(state.prompt);
     const theme = detectTheme(state.prompt);
     const mood = detectMood(state.prompt);
     const title = extractTitle(state.prompt) || "Custom prompt";
@@ -449,6 +519,12 @@
         ["Shadow stretch", "Long shadows sculpt the terrain"],
         ["Horizon hold", "Final wide desert silhouette"],
       ],
+      park: [
+        ["Path open", "Couple and dog enter a sunlit park path"],
+        ["Walk cycle", "Subjects walk forward with natural motion"],
+        ["Side pass", "Camera tracks beside the group"],
+        ["Soft hold", "Final walking frame in warm light"],
+      ],
       portrait: [
         ["Soft open", "Portrait lighting settles on subject"],
         ["Micro move", "Subtle camera push and catchlights"],
@@ -497,6 +573,15 @@
       dur: "local",
     }));
 
+    if (subjectsInfo.hasSubjects) {
+      log.push({
+        index: log.length + 1,
+        title: "Subject parser",
+        description: subjectsInfo.subjects.map((s) => s.type).join(", ") + " · action: " + subjectsInfo.action,
+        dur: "on-device",
+      });
+    }
+
     if (state.refImage) {
       log.push({
         index: log.length + 1,
@@ -537,6 +622,8 @@
       scenes,
       caption: title,
       agent,
+      subjects: subjectsInfo.subjects,
+      subjectMeta: subjectsInfo,
       effects: {
         grain: Math.max(agent.grain, state.style === "documentary" || state.style === "noir" ? 0.12 : 0.05),
         bloom: Math.max(agent.bloom, state.style === "dreamy" || state.style === "vivid" ? 0.3 : 0.16),
@@ -945,7 +1032,10 @@
     const alpha = Math.min(fadeIn, fadeOut) * 0.92;
     if (alpha <= 0.02) return;
     const title = plan.caption;
-    const sub = `${plan.agent.name} · ${plan.mode} · free local`;
+    const subjectsLabel = (plan.subjects && plan.subjects.length)
+      ? plan.subjects.map((s) => s.type).join("+")
+      : plan.theme;
+    const sub = `${plan.agent.name} · ${subjectsLabel} · free local`;
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.fillStyle = "rgba(0,0,0,0.35)";
@@ -983,6 +1073,298 @@
     return plan.scenes[plan.scenes.length - 1];
   }
 
+  function drawPark(ctx, w, h, plan, t, seed) {
+    // sky
+    const g = ctx.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, rgb(plan.palette.skyTop));
+    g.addColorStop(0.55, rgb(plan.palette.skyBot));
+    g.addColorStop(1, rgb(plan.palette.ground));
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+
+    // sun
+    const sunX = w * 0.78;
+    const sunY = h * 0.18;
+    const sg = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, Math.min(w, h) * 0.18);
+    sg.addColorStop(0, rgba(plan.palette.accent, 0.85));
+    sg.addColorStop(1, rgba(plan.palette.accent, 0));
+    ctx.fillStyle = sg;
+    ctx.fillRect(0, 0, w, h);
+
+    // distant trees
+    for (let i = 0; i < 14; i++) {
+      const x = (i / 14) * w + Math.sin(t * 0.2 + i) * 2;
+      const treeH = h * (0.16 + hash(seed + i * 9) * 0.12);
+      const base = h * 0.58;
+      ctx.fillStyle = rgba([40, 80, 50], 0.85);
+      ctx.fillRect(x, base - treeH, 6, treeH);
+      ctx.beginPath();
+      ctx.fillStyle = rgba([50, 120, 70], 0.9);
+      ctx.arc(x + 3, base - treeH, 16 + hash(seed + i) * 14, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // grass field
+    const grass = ctx.createLinearGradient(0, h * 0.55, 0, h);
+    grass.addColorStop(0, rgba([90, 150, 80], 0.95));
+    grass.addColorStop(1, rgba([40, 90, 50], 1));
+    ctx.fillStyle = grass;
+    ctx.fillRect(0, h * 0.55, w, h * 0.45);
+
+    // path
+    ctx.beginPath();
+    ctx.moveTo(w * 0.28, h);
+    ctx.quadraticCurveTo(w * 0.42, h * 0.72, w * 0.48, h * 0.58);
+    ctx.quadraticCurveTo(w * 0.55, h * 0.72, w * 0.72, h);
+    ctx.closePath();
+    ctx.fillStyle = rgba([170, 150, 120], 0.95);
+    ctx.fill();
+    ctx.strokeStyle = rgba([140, 120, 90], 0.5);
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // path dashes
+    for (let i = 0; i < 8; i++) {
+      const yy = h * (0.62 + i * 0.045);
+      const xx = w * (0.49 + Math.sin(i + t * 0.2) * 0.01);
+      ctx.fillStyle = rgba([210, 190, 150], 0.55);
+      ctx.fillRect(xx - 8, yy, 16 - i, 4);
+    }
+  }
+
+  function limb(ctx, x1, y1, x2, y2, width, color) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+
+  function drawPersonFigure(ctx, x, groundY, scale, t, phase, colors) {
+    const s = scale;
+    const bob = Math.sin(t * 6 + phase) * 3 * s;
+    const swing = Math.sin(t * 6 + phase) * 12 * s;
+    const bodyColor = colors.body;
+    const skin = colors.skin;
+    const pants = colors.pants;
+
+    const hipY = groundY - 46 * s + bob;
+    const shoulderY = groundY - 88 * s + bob;
+    const headY = groundY - 112 * s + bob;
+    const headR = 12 * s;
+
+    // legs
+    limb(ctx, x, hipY, x - 10 * s - swing * 0.15, groundY - 2, 6 * s, pants);
+    limb(ctx, x, hipY, x + 10 * s + swing * 0.15, groundY - 2, 6 * s, pants);
+    // body
+    limb(ctx, x, hipY, x, shoulderY, 10 * s, bodyColor);
+    // arms
+    limb(ctx, x, shoulderY + 6 * s, x - 16 * s + swing * 0.2, shoulderY + 34 * s, 5 * s, bodyColor);
+    limb(ctx, x, shoulderY + 6 * s, x + 16 * s - swing * 0.2, shoulderY + 34 * s, 5 * s, bodyColor);
+    // head
+    ctx.fillStyle = skin;
+    ctx.beginPath();
+    ctx.arc(x, headY, headR, 0, Math.PI * 2);
+    ctx.fill();
+    // hair
+    ctx.fillStyle = colors.hair;
+    ctx.beginPath();
+    ctx.arc(x, headY - 2 * s, headR * 0.95, Math.PI * 1.05, Math.PI * 1.95);
+    ctx.fill();
+  }
+
+  function drawDogFigure(ctx, x, groundY, scale, t, phase, color) {
+    const s = scale;
+    const bob = Math.abs(Math.sin(t * 8 + phase)) * 2 * s;
+    const bodyY = groundY - 18 * s - bob;
+    const legSwing = Math.sin(t * 8 + phase) * 6 * s;
+
+    ctx.fillStyle = color;
+    // body
+    ctx.beginPath();
+    ctx.ellipse(x, bodyY, 22 * s, 10 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // head
+    ctx.beginPath();
+    ctx.ellipse(x + 22 * s, bodyY - 4 * s, 10 * s, 8 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // ear
+    ctx.beginPath();
+    ctx.ellipse(x + 18 * s, bodyY - 10 * s, 4 * s, 7 * s, -0.4, 0, Math.PI * 2);
+    ctx.fill();
+    // snout
+    ctx.fillStyle = rgba([40, 30, 25], 0.9);
+    ctx.beginPath();
+    ctx.ellipse(x + 30 * s, bodyY - 2 * s, 5 * s, 3.5 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // legs
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3.5 * s;
+    ctx.lineCap = "round";
+    const legs = [
+      [x - 12 * s, bodyY + 6 * s, x - 14 * s - legSwing * 0.2, groundY],
+      [x - 2 * s, bodyY + 6 * s, x - 1 * s + legSwing * 0.2, groundY],
+      [x + 8 * s, bodyY + 6 * s, x + 7 * s - legSwing * 0.15, groundY],
+      [x + 16 * s, bodyY + 6 * s, x + 18 * s + legSwing * 0.15, groundY],
+    ];
+    legs.forEach(([x1, y1, x2, y2]) => {
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+    });
+    // tail
+    ctx.beginPath();
+    ctx.moveTo(x - 20 * s, bodyY - 2 * s);
+    ctx.quadraticCurveTo(x - 30 * s, bodyY - 14 * s - Math.sin(t * 10 + phase) * 4 * s, x - 24 * s, bodyY - 8 * s);
+    ctx.stroke();
+  }
+
+  function drawCatFigure(ctx, x, groundY, scale, t, phase, color) {
+    const s = scale;
+    const bob = Math.abs(Math.sin(t * 7 + phase)) * 1.5 * s;
+    const bodyY = groundY - 14 * s - bob;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.ellipse(x, bodyY, 16 * s, 8 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + 16 * s, bodyY - 4 * s, 7 * s, 0, Math.PI * 2);
+    ctx.fill();
+    // ears
+    ctx.beginPath();
+    ctx.moveTo(x + 12 * s, bodyY - 8 * s);
+    ctx.lineTo(x + 10 * s, bodyY - 16 * s);
+    ctx.lineTo(x + 16 * s, bodyY - 9 * s);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x + 18 * s, bodyY - 8 * s);
+    ctx.lineTo(x + 22 * s, bodyY - 16 * s);
+    ctx.lineTo(x + 24 * s, bodyY - 8 * s);
+    ctx.fill();
+    // legs + tail
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.8 * s;
+    ctx.lineCap = "round";
+    const swing = Math.sin(t * 8 + phase) * 4 * s;
+    [[x - 8 * s, x - 9 * s - swing], [x - 1 * s, x], [x + 6 * s, x + 5 * s + swing], [x + 11 * s, x + 12 * s - swing]].forEach(([x1, x2]) => {
+      ctx.beginPath();
+      ctx.moveTo(x1, bodyY + 5 * s);
+      ctx.lineTo(x2, groundY);
+      ctx.stroke();
+    });
+    ctx.beginPath();
+    ctx.moveTo(x - 14 * s, bodyY);
+    ctx.quadraticCurveTo(x - 24 * s, bodyY - 12 * s, x - 18 * s, bodyY - 18 * s + Math.sin(t * 6) * 3 * s);
+    ctx.stroke();
+  }
+
+  function drawRobotFigure(ctx, x, groundY, scale, t, phase, color) {
+    const s = scale;
+    const bob = Math.sin(t * 5 + phase) * 2 * s;
+    ctx.fillStyle = color;
+    ctx.fillRect(x - 12 * s, groundY - 70 * s + bob, 24 * s, 40 * s);
+    ctx.fillRect(x - 10 * s, groundY - 90 * s + bob, 20 * s, 16 * s);
+    ctx.fillStyle = rgba([120, 220, 255], 0.9);
+    ctx.fillRect(x - 6 * s, groundY - 86 * s + bob, 12 * s, 6 * s);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 5 * s;
+    const swing = Math.sin(t * 5 + phase) * 8 * s;
+    ctx.beginPath();
+    ctx.moveTo(x - 12 * s, groundY - 60 * s + bob);
+    ctx.lineTo(x - 22 * s, groundY - 40 * s + bob + swing);
+    ctx.moveTo(x + 12 * s, groundY - 60 * s + bob);
+    ctx.lineTo(x + 22 * s, groundY - 40 * s + bob - swing);
+    ctx.moveTo(x - 6 * s, groundY - 30 * s + bob);
+    ctx.lineTo(x - 8 * s - swing * 0.2, groundY);
+    ctx.moveTo(x + 6 * s, groundY - 30 * s + bob);
+    ctx.lineTo(x + 8 * s + swing * 0.2, groundY);
+    ctx.stroke();
+  }
+
+  function drawCarFigure(ctx, x, groundY, scale, t, color) {
+    const s = scale;
+    const y = groundY - 18 * s;
+    ctx.fillStyle = color;
+    ctx.fillRect(x - 40 * s, y - 10 * s, 80 * s, 18 * s);
+    ctx.fillRect(x - 22 * s, y - 26 * s, 44 * s, 16 * s);
+    ctx.fillStyle = rgba([180, 220, 255], 0.8);
+    ctx.fillRect(x - 16 * s, y - 24 * s, 32 * s, 10 * s);
+    ctx.fillStyle = "#222";
+    ctx.beginPath();
+    ctx.arc(x - 24 * s, y + 8 * s, 8 * s, 0, Math.PI * 2);
+    ctx.arc(x + 24 * s, y + 8 * s, 8 * s, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawSubjects(ctx, w, h, plan, t) {
+    const subjects = plan.subjects || [];
+    if (!subjects.length) return;
+    const groundY = h * (plan.theme === "park" || plan.theme === "forest" || plan.theme === "desert" || plan.theme === "mountain" ? 0.78 : 0.82);
+    // group walks across frame
+    const progress = (t * 0.08) % 1.4;
+    const baseX = w * (-0.15 + progress);
+    const palette = plan.palette;
+    const personColors = [
+      { body: rgb([40, 90, 160]), pants: rgb([40, 45, 60]), skin: rgb([230, 190, 160]), hair: rgb([40, 30, 25]) },
+      { body: rgb([180, 70, 90]), pants: rgb([50, 45, 55]), skin: rgb([235, 195, 165]), hair: rgb([70, 45, 30]) },
+      { body: rgb([50, 130, 100]), pants: rgb([45, 50, 55]), skin: rgb([225, 185, 155]), hair: rgb([30, 30, 35]) },
+    ];
+    let personIdx = 0;
+    let petIdx = 0;
+    subjects.forEach((sub, i) => {
+      const spacing = 54 + i * 8;
+      let x = baseX + i * spacing;
+      // keep visible-ish by wrapping a bit
+      if (x > w + 80) x = ((x + 80) % (w + 160)) - 80;
+      const phase = i * 1.3;
+      const sc = (sub.scale || 1) * Math.min(w, h) / 720;
+      if (sub.type === "person") {
+        drawPersonFigure(ctx, x, groundY, sc * 1.15, t, phase, personColors[personIdx % personColors.length]);
+        personIdx += 1;
+      } else if (sub.type === "dog") {
+        drawDogFigure(ctx, x + 10, groundY, sc * 1.2, t, phase, rgb([160, 110, 70]));
+        petIdx += 1;
+      } else if (sub.type === "cat") {
+        drawCatFigure(ctx, x + 8, groundY, sc * 1.2, t, phase, rgb([200, 140, 80]));
+      } else if (sub.type === "robot") {
+        drawRobotFigure(ctx, x, groundY, sc * 1.1, t, phase, rgb(palette.mid));
+      } else if (sub.type === "car") {
+        drawCarFigure(ctx, x, groundY, sc, t, rgb(palette.accent));
+      } else if (sub.type === "horse") {
+        // simple horse proxy using stretched dog-like body + taller legs
+        drawDogFigure(ctx, x, groundY, sc * 1.7, t, phase, rgb([120, 85, 55]));
+      } else if (sub.type === "bird") {
+        const by = groundY - 90 - Math.sin(t * 3 + i) * 10;
+        ctx.fillStyle = rgb(palette.accent);
+        ctx.beginPath();
+        ctx.ellipse(x, by, 10, 4, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(x - 4, by);
+        ctx.lineTo(x + 2, by - 10 - Math.sin(t * 10) * 4);
+        ctx.lineTo(x + 8, by);
+        ctx.fill();
+      }
+    });
+
+    // leash for person+dog
+    const hasPerson = subjects.some((s) => s.type === "person");
+    const hasDog = subjects.some((s) => s.type === "dog");
+    if (hasPerson && hasDog) {
+      ctx.strokeStyle = rgba([40, 30, 20], 0.7);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      const px = baseX + 20;
+      const dx = baseX + 70;
+      ctx.moveTo(px + 16, groundY - 55);
+      ctx.quadraticCurveTo((px + dx) / 2, groundY - 70, dx + 20, groundY - 22);
+      ctx.stroke();
+    }
+  }
+
   function drawThemeScene(ctx, w, h, plan, t) {
     drawSky(ctx, w, h, plan, t);
     drawClouds(ctx, w, h, plan, t, plan.seed);
@@ -1014,10 +1396,15 @@
       case "product":
         drawProduct(ctx, w, h, plan, t);
         break;
+      case "park":
+        drawPark(ctx, w, h, plan, t, plan.seed);
+        break;
       default:
         drawAbstract(ctx, w, h, plan, t, plan.seed);
         break;
     }
+    // Always overlay parsed subjects (people/animals/etc.)
+    drawSubjects(ctx, w, h, plan, t);
   }
 
   function renderFrame(ctx, w, h, plan, time) {
@@ -1071,6 +1458,11 @@
       ctx.globalAlpha = 0.2;
       drawAbstract(ctx, w, h, plan, t, plan.seed + 3);
       ctx.globalAlpha = 1;
+    }
+
+    // subjects over reference media too
+    if (usedRef && plan.subjects && plan.subjects.length) {
+      drawSubjects(ctx, w, h, plan, t);
     }
 
     // face composite for faceswap / optional overlay
