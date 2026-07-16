@@ -8,6 +8,8 @@
 (function () {
   "use strict";
 
+  const APP_VERSION = "v5.1-subjects";
+
   const MODES = [
     { id: "text2video", label: "Text → Video" },
     { id: "image2video", label: "Image → Video" },
@@ -1302,10 +1304,10 @@
   function drawSubjects(ctx, w, h, plan, t) {
     const subjects = plan.subjects || [];
     if (!subjects.length) return;
-    const groundY = h * (plan.theme === "park" || plan.theme === "forest" || plan.theme === "desert" || plan.theme === "mountain" ? 0.78 : 0.82);
-    // group walks across frame
-    const progress = (t * 0.08) % 1.4;
-    const baseX = w * (-0.15 + progress);
+    const groundY = h * (plan.theme === "park" || plan.theme === "forest" || plan.theme === "desert" || plan.theme === "mountain" ? 0.82 : 0.84);
+    // Keep the group mostly on-screen and large enough to notice
+    const progress = 0.18 + 0.55 * (0.5 + 0.5 * Math.sin(t * 0.35));
+    const baseX = w * progress;
     const palette = plan.palette;
     const personColors = [
       { body: rgb([40, 90, 160]), pants: rgb([40, 45, 60]), skin: rgb([230, 190, 160]), hair: rgb([40, 30, 25]) },
@@ -1314,13 +1316,13 @@
     ];
     let personIdx = 0;
     let petIdx = 0;
+    const count = subjects.length;
     subjects.forEach((sub, i) => {
-      const spacing = 54 + i * 8;
-      let x = baseX + i * spacing;
-      // keep visible-ish by wrapping a bit
-      if (x > w + 80) x = ((x + 80) % (w + 160)) - 80;
+      const spacing = Math.min(w, h) * 0.11;
+      let x = baseX + (i - (count - 1) / 2) * spacing;
       const phase = i * 1.3;
-      const sc = (sub.scale || 1) * Math.min(w, h) / 720;
+      // Much larger figures so the prompt subjects are obvious
+      const sc = (sub.scale || 1) * Math.min(w, h) / 380;
       if (sub.type === "person") {
         drawPersonFigure(ctx, x, groundY, sc * 1.15, t, phase, personColors[personIdx % personColors.length]);
         personIdx += 1;
@@ -1354,20 +1356,23 @@
     const hasPerson = subjects.some((s) => s.type === "person");
     const hasDog = subjects.some((s) => s.type === "dog");
     if (hasPerson && hasDog) {
-      ctx.strokeStyle = rgba([40, 30, 20], 0.7);
-      ctx.lineWidth = 2;
+      const gap = Math.min(w, h) * 0.11;
+      ctx.strokeStyle = rgba([40, 30, 20], 0.8);
+      ctx.lineWidth = 3;
       ctx.beginPath();
-      const px = baseX + 20;
-      const dx = baseX + 70;
-      ctx.moveTo(px + 16, groundY - 55);
-      ctx.quadraticCurveTo((px + dx) / 2, groundY - 70, dx + 20, groundY - 22);
+      const px = baseX - gap * 0.4;
+      const dx = baseX + gap * 0.5;
+      ctx.moveTo(px + 18, groundY - Math.min(w, h) * 0.12);
+      ctx.quadraticCurveTo((px + dx) / 2, groundY - Math.min(w, h) * 0.16, dx + 24, groundY - Math.min(w, h) * 0.05);
       ctx.stroke();
     }
   }
 
   function drawThemeScene(ctx, w, h, plan, t) {
-    drawSky(ctx, w, h, plan, t);
-    drawClouds(ctx, w, h, plan, t, plan.seed);
+    if (plan.theme !== "park") {
+      drawSky(ctx, w, h, plan, t);
+      drawClouds(ctx, w, h, plan, t, plan.seed);
+    }
     switch (plan.theme) {
       case "ocean":
         drawMountains(ctx, w, h, plan, t, plan.seed, 0);
@@ -1787,6 +1792,8 @@
       state.seed = Math.floor(Math.random() * 1e9);
       if (els.seedValue) els.seedValue.textContent = String(state.seed);
       ensurePlan();
+      const subj = (state.plan.subjects || []).map((s) => s.type).join("+") || "scene-only";
+      setStatus(`Generating ${state.mode} · ${state.plan.theme} · ${subj}`, 1);
       if (state.mode === "text2image") await generateImage();
       else await generateVideo();
     } catch (err) {
@@ -1851,7 +1858,10 @@
     canvas.height = Math.round(a.h * scale);
     renderFrame(ctx, canvas.width, canvas.height, state.plan, state.duration * 0.35);
     if (els.overlay) els.overlay.classList.add("hidden");
-    setStatus("Scene ready — preview or generate", 0);
+    const subj = (state.plan && state.plan.subjects && state.plan.subjects.length)
+      ? state.plan.subjects.map((s) => s.type).join("+")
+      : "no subjects";
+    setStatus(`Ready · theme ${state.plan.theme} · ${subj} · ${APP_VERSION}`, 0);
   }
 
   function revokeAsset(asset) {
@@ -2004,7 +2014,7 @@
               <p>Free local studio · text/image/video refs · face composite · no API keys</p>
             </div>
           </div>
-          <div class="badge"><span class="badge-dot"></span> 100% on-device</div>
+          <div class="badge"><span class="badge-dot"></span> ${APP_VERSION} · on-device</div>
         </header>
 
         <main class="layout">
